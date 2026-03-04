@@ -1,0 +1,60 @@
+name: CI/CD - Spring Angular MySQL
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout code
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      # Step 2: Login to Docker Hub
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Step 3: Build and Push Backend
+      - name: Build and push backend image
+        run: |
+          cd springboot/app
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/spring-app:latest .
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/spring-app:latest
+
+      # Step 4: Build and Push Frontend
+      - name: Build and push frontend image
+        run: |
+          cd angular-app
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/angular-app:latest .
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/angular-app:latest
+
+      # Step 5: Update docker-compose.yml for testing
+      - name: Update docker-compose.yml for Docker Hub
+        run: |
+          sed -i "s|image: angular-app|image: ${{ secrets.DOCKERHUB_USERNAME }}/angular-app:latest|g" docker-compose.yml
+          sed -i "s|image: spring-app|image: ${{ secrets.DOCKERHUB_USERNAME }}/spring-app:latest|g" docker-compose.yml
+
+      # Step 6: Test the Application
+      - name: Start application with Docker Compose
+        run: docker-compose up -d
+
+      - name: Wait for services to be ready
+        run: sleep 45
+
+      - name: Verify Backend Health
+        run: curl -f http://localhost:8081/actuator/health || exit 1
+
+      - name: Verify Frontend Connection
+        run: curl -f http://localhost:4200 || exit 1
+
+      - name: Show logs if failure occurs
+        if: failure()
+        run: docker-compose logs
